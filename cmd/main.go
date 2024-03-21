@@ -11,6 +11,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/common-fate/clio/clierr"
+	"github.com/common-fate/glide-cli/cmd/command/admin_rules"
 	"github.com/common-fate/glide-cli/cmd/command/provider"
 	"github.com/common-fate/glide-cli/cmd/command/rules"
 	"github.com/common-fate/glide-cli/cmd/command/targetgroup"
@@ -42,6 +43,7 @@ func main() {
 			&command.Logout,
 			&config.Command,
 			&rules.Command,
+			&admin_rules.Command,
 			&provider.Command,
 			&targetgroup.Command,
 			&handler.Command,
