@@ -174,7 +174,9 @@ var diffVersions = cli.Command{
 			}
 
 		case "json":
-			err := json.NewEncoder(os.Stdout).Encode(diffs)
+			enc := json.NewEncoder(os.Stdout)
+			enc.SetIndent("", "  ")
+			err := enc.Encode(diffs)
 			if err != nil {
 				return err
 			}

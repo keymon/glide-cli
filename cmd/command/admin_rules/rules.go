@@ -9,5 +9,6 @@ var Command = cli.Command{
 		&list,
 		&listVersions,
 		&diffVersions,
+		&findTarget,
 	},
 }
