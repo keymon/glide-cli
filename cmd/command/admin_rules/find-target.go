@@ -11,12 +11,15 @@ import (
 )
 
 type foundReport struct {
-	ID            string
-	Name          string
 	TargetGroupID string
+	RuleID        string
+	Name          string
 	Versions      []string
+	VersionCount  int
 }
 
+// findTarget is a cli command that searches for a specific target across all Access Rules Versions
+// using the api of glide
 var findTarget = cli.Command{
 	Name:  "find-target",
 	Usage: "Search across all Access Rules Versions for a specific target",
@@ -25,6 +28,8 @@ var findTarget = cli.Command{
 		&cli.StringSliceFlag{Name: "target-id", Usage: "Target ids to search. ", Aliases: []string{"t"}},
 	},
 	Action: func(c *cli.Context) error {
+
+		// Client initialization
 		ctx := c.Context
 
 		cfg, err := config.Load()
@@ -37,9 +42,11 @@ var findTarget = cli.Command{
 			return err
 		}
 
+		// Get the config parameters from command line
 		targetIds := c.StringSlice("target-id")
-
 		ruleIDs := c.StringSlice("rule-id")
+
+		// If no rule id is provided, get all the rules from API
 		if len(ruleIDs) == 0 {
 			rules, err := cf.AdminListAccessRulesWithResponse(ctx, &types.AdminListAccessRulesParams{})
 			if err != nil {
@@ -52,6 +59,8 @@ var findTarget = cli.Command{
 
 		accessRules := []types.AccessRuleDetail{}
 
+		// Retrieve all the versions of the rules and store them in accessRules
+		// for processing next
 		for _, ruleID := range ruleIDs {
 			versions, err := cf.AdminGetAccessRuleVersionsWithResponse(ctx, ruleID)
 			if err != nil {
@@ -60,33 +69,51 @@ var findTarget = cli.Command{
 			accessRules = append(accessRules, versions.JSON200.AccessRules...)
 		}
 
-		foundVersionRules := map[string][]types.AccessRuleDetail{}
+		foundVersionRulesPerGroup := map[string]map[string][]types.AccessRuleDetail{}
+		// For each group ID in the targetIds, search for the group in the rule versions
+		// and store the found versions in the foundVersionRulesPerGroup map
 		for _, target := range targetIds {
 			for _, rule := range accessRules {
 				for _, group := range rule.Target.With.AdditionalProperties["groupId"].Values {
 					if target == group {
-						if _, ok := foundVersionRules[rule.ID]; !ok {
-							foundVersionRules[rule.ID] = []types.AccessRuleDetail{}
+						// Initialise structs/maps if not already present
+						if _, ok := foundVersionRulesPerGroup[group]; !ok {
+							foundVersionRulesPerGroup[group] = map[string][]types.AccessRuleDetail{}
 						}
-						foundVersionRules[rule.ID] = append(foundVersionRules[rule.ID], rule)
+						if _, ok := foundVersionRulesPerGroup[group][rule.ID]; !ok {
+							foundVersionRulesPerGroup[group][rule.ID] = []types.AccessRuleDetail{}
+						}
+						// Append the found rule version to the map
+						foundVersionRulesPerGroup[group][rule.ID] = append(foundVersionRulesPerGroup[group][rule.ID], rule)
 					}
 				}
 			}
 		}
 
 		report := []foundReport{}
-		for ruleID, rules := range foundVersionRules {
-			versionIDs := []string{}
-			for _, ruleVersion := range rules {
-				versionIDs = append(versionIDs, ruleVersion.Version)
-			}
+		// Generate the report from the foundVersionRulesPerGroup map
+		// for each target group
+		for targetGroupID, foundVersionRules := range foundVersionRulesPerGroup {
+			// For each found version
+			for ruleID, rules := range foundVersionRules {
+				versionIDs := []string{}
+				// List all the version ids
+				for _, ruleVersion := range rules {
+					versionIDs = append(versionIDs, ruleVersion.Version)
+				}
 
-			report = append(report, foundReport{
-				ID:       ruleID,
-				Name:     rules[len(rules)-1].Name,
-				Versions: versionIDs,
-			})
+				// Add add the found report to the report slice
+				report = append(report, foundReport{
+					TargetGroupID: targetGroupID,
+					RuleID:        ruleID,
+					Name:          rules[len(rules)-1].Name,
+					Versions:      versionIDs,
+					VersionCount:  len(versionIDs),
+				})
+			}
 		}
+
+		// Encode the report in json
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
 		err = enc.Encode(report)
