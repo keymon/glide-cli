@@ -20,6 +20,8 @@ import (
 	"github.com/gocarina/gocsv"
 )
 
+// accessRuleDetailSubset is a subset of the AccessRuleDetail struct
+// that contains only the fields needed for the diff
 type accessRuleDetailSubset struct {
 	// Approver config for access rules
 	Name              string                       `json:"name"`
@@ -31,6 +33,8 @@ type accessRuleDetailSubset struct {
 	TimeConstraints   types.TimeConstraints        `json:"timeConstraints"`
 }
 
+// convertToAccessRuleDetailSubset converts an AccessRuleDetail to an accessRuleDetailSubset
+// extracting only the fields needed for the diff
 func convertToAccessRuleDetailSubset(rule types.AccessRuleDetail) accessRuleDetailSubset {
 	descriptionSha256 := fmt.Sprintf("%x", sha256.Sum256([]byte(rule.Description)))
 
@@ -50,6 +54,8 @@ func convertToAccessRuleDetailSubset(rule types.AccessRuleDetail) accessRuleDeta
 	}
 }
 
+// DiffEntry is a struct that contains the diff between two versions of an Access Rule
+// that we will use to print the diff report in different formats
 type DiffEntry struct {
 	RuleID    string    `json:"ruleId"`
 	Version   string    `json:"version"`
@@ -58,6 +64,7 @@ type DiffEntry struct {
 	Diff      string    `json:"diff"`
 }
 
+// diffVersions is a cli command that gets Access Rules Versions and prints the diff between them
 var diffVersions = cli.Command{
 	Name:  "diff-versions",
 	Usage: "Get Access Rules Versions and prints the diff between them",
@@ -67,6 +74,8 @@ var diffVersions = cli.Command{
 		&cli.BoolFlag{Name: "exclude-bot-governance-api", Usage: "Exclude changes done via terraform API. Only in text mode.", Aliases: []string{"x"}},
 	},
 	Action: func(c *cli.Context) error {
+
+		// Initialise the glide API client
 		ctx := c.Context
 
 		cfg, err := config.Load()
@@ -74,18 +83,17 @@ var diffVersions = cli.Command{
 			return err
 		}
 
-		enc := json.NewEncoder(os.Stdout)
-		enc.SetIndent("", "  ")
-
 		cf, err := client.FromConfig(ctx, cfg)
 		if err != nil {
 			return err
 		}
 
+		// Load config parameters
 		ruleIDs := c.StringSlice("rule-id")
 		format := c.String("format")
 		excludeBotGovernanceApi := c.Bool("exclude-bot-governance-api")
 
+		// If no rules are passed, get all the rules from the API
 		if len(ruleIDs) == 0 {
 			rules, err := cf.AdminListAccessRulesWithResponse(ctx, &types.AdminListAccessRulesParams{})
 			if err != nil {
@@ -98,7 +106,9 @@ var diffVersions = cli.Command{
 
 		diffs := []DiffEntry{}
 
+		// For each rule
 		for _, ruleID := range ruleIDs {
+			// get all the versions from the API
 			versions, err := cf.AdminGetAccessRuleVersionsWithResponse(ctx, ruleID)
 			if err != nil {
 				return err
@@ -108,10 +118,12 @@ var diffVersions = cli.Command{
 				return fmt.Errorf("No versions found for rule %s", ruleID)
 			}
 
+			// Sort the versions by UpdatedAt
 			sort.Slice(accessRules, func(i, j int) bool {
 				return accessRules[i].Metadata.UpdatedAt.Before(accessRules[j].Metadata.UpdatedAt)
 			})
 
+			// iterate the rules. We need a initial empty rule to compare with the first rule
 			prevRule := types.AccessRuleDetail{
 				ID:      accessRules[0].ID,
 				Version: "initial",
@@ -121,7 +133,7 @@ var diffVersions = cli.Command{
 			}
 
 			for _, rule := range accessRules {
-				// Convert objects to YAML
+				// Convert objects to YAML, as YAML is more pretty for a diff
 				yaml1, err := yaml.Marshal(convertToAccessRuleDetailSubset(prevRule))
 				if err != nil {
 					return err
@@ -131,6 +143,7 @@ var diffVersions = cli.Command{
 					return err
 				}
 
+				// Fake the file name to show the diff
 				fromFile := fmt.Sprintf("Rule: %s By:%s Version:%s", prevRule.ID, prevRule.Metadata.UpdatedBy, prevRule.Version)
 				toFile := fmt.Sprintf("Rule: %s By:%s Version:%s", rule.ID, rule.Metadata.UpdatedBy, rule.Version)
 
@@ -161,6 +174,7 @@ var diffVersions = cli.Command{
 			}
 		}
 
+		// Generate the report in different formats
 		switch format {
 		case "text":
 			for _, diff := range diffs {
